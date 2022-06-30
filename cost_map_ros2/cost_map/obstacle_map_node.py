@@ -21,6 +21,10 @@ import tf_transformations
 import cv2
 import time
 
+from costmap_msgs.msg import CostMapMsg
+from costmap_msgs.srv import GetCostMap, GetInflatedCostMap
+from example_interfaces.srv import AddTwoInts
+
 
 class ObstacleMapNode(rclpy.node.Node):
     def __init__(self):
@@ -42,6 +46,37 @@ class ObstacleMapNode(rclpy.node.Node):
             f"CostMap initialized. map size={self.costmap.get_map_size()} | resolution={self.costmap.get_resolution()} | min_x={self.costmap._min_x_m} | min_y = {self.costmap._min_y_m}"
         )
 
+        self.costmap_srv = self.create_service(
+            GetCostMap, "costmap_srv", self.on_costmap_srv_callback
+        )
+
+        self.inflated_costmap_srv = self.create_service(
+            GetInflatedCostMap, "inflated_costmap_srv", self.get_inflated_map_callback
+        )
+
+    def on_costmap_srv_callback(self, request, response):
+        header = Header(stamp=self.get_clock().now().to_msg(), frame_id="map")
+        m = self.costmap.to_ros_msg(header=header)
+        response.map = m
+        return response
+
+    def get_inflated_map_callback(self, request, response):
+        header = Header(stamp=self.get_clock().now().to_msg(), frame_id="map")
+
+        icm = InflatedCostMap.from_costmap(
+            cost_map=self.costmap,
+            width=request.width,
+            height=request.height,
+            Ox=request.min_x,
+            Oy=request.min_y,
+            obstacle_kernel_len=51,
+            obstacle_kernel_std=15,
+            obstacle_threshold=0.1,
+        )
+        m = icm.to_ros_msg(header=header)
+        response.map = m
+        return response
+
     def obstacles_sub_callback(self, marker: Marker):
         if len(marker.points) == 0:
             return
@@ -56,31 +91,24 @@ class ObstacleMapNode(rclpy.node.Node):
 
         # plot obstacles onto cost map
         self.costmap.set_val_from_world_coords(points_map[0:2], 1.0)
+        # width = 200
+        # height = 200
 
-        width = 200
-        height = 200
-
-        icm = InflatedCostMap.from_costmap(
-            cost_map=self.costmap,
-            width=width,
-            height=height,
-            Ox=trans.transform.translation.x - width // 2,
-            Oy=trans.transform.translation.y - height // 2,
-            obstacle_kernel_len=51,
-            obstacle_kernel_std=15,
-            obstacle_threshold=0.1,
-        )
-        start = time.time()
-        msg = icm.to_occupancy_grid_msg(
-            header=Header(stamp=self.get_clock().now().to_msg(), frame_id="map")
-        )
-        print(1 / (time.time() - start))
-
-        # cv2.imshow(
-        #     "map",
-        #     cv2.resize(icm.to_rgb_map(), dsize=(400, 400)),
+        # icm = InflatedCostMap.from_costmap(
+        #     cost_map=self.costmap,
+        #     width=width,
+        #     height=height,
+        #     Ox=trans.transform.translation.x - width // 2,
+        #     Oy=trans.transform.translation.y - height // 2,
+        #     obstacle_kernel_len=51,
+        #     obstacle_kernel_std=15,
+        #     obstacle_threshold=0.1,
         # )
-        # cv2.waitKey(1)
+        # start = time.time()
+        # msg = icm.to_ros_msg(
+        #     header=Header(stamp=self.get_clock().now().to_msg(), frame_id="map")
+        # )
+        # print(1 / (time.time() - start))
 
     @staticmethod
     def points_from_lidar_to_map(

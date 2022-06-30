@@ -4,6 +4,8 @@ import cv2
 from nav_msgs.msg import OccupancyGrid, MapMetaData
 from std_msgs.msg import Header
 from geometry_msgs.msg import Pose, Point
+from costmap_msgs.msg import CostMapMsg
+from cv_bridge import CvBridge
 
 
 class CostMap:
@@ -38,6 +40,7 @@ class CostMap:
             self._min_y_m,
             self._resolution,
         )
+        self._br = CvBridge()
 
     @staticmethod
     def _init_map(width_m, height_m, min_x_m, min_y_m, resolution) -> np.ndarray:
@@ -159,8 +162,8 @@ class CostMap:
     def get_resolution(self) -> float:
         return self._resolution
 
-    def to_occupancy_grid_msg(self, header: Header) -> OccupancyGrid:
-        og: OccupancyGrid = OccupancyGrid(header=header)
+    def to_ros_msg(self, header: Header) -> CostMapMsg:
+        msg = CostMapMsg()
         info: MapMetaData = MapMetaData(
             resolution=float(self._resolution),
             width=int(self._map.shape[0]),
@@ -171,16 +174,11 @@ class CostMap:
                 )
             ),
         )
-        og.info = info
-        # normalized_map = (self._map * 255).astype(np.int8)
-        # rescaled_map: np.ndarray = (normalized_map * 255).astype(np.int8)
-        data = (
-            self._map.reshape((int(self._map.shape[0] * self._map.shape[1])))
-            .astype(np.int8)
-            .tolist()
-        )
-        og.data = data
-        return og
+        msg.info = info
+        msg.header = header
+        msg.map = self._br.cv2_to_imgmsg(self._map)
+
+        return msg
 
 
 class CostMapException(Exception):

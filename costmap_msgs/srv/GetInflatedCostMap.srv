@@ -1,7 +1,11 @@
-int64 width_m
-int64 height_m
+int64 width
+int64 height
 float32 min_x
 float32 min_y
-
+int64 obstacle_kernel_len
+int64 obstacle_kernel_std
+int64 goal_kernel_len
+int64 goal_kernel_std
+float32 obstacle_threshold
 ---
-nav_msgs/OccupancyGrid map
+costmap_msgs/CostMapMsg map
