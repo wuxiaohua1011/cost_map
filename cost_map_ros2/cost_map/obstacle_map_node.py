@@ -70,12 +70,17 @@ class ObstacleMapNode(rclpy.node.Node):
             obstacle_kernel_std=15,
             obstacle_threshold=0.1,
         )
-
-        cv2.imshow(
-            "map",
-            cv2.resize(icm.to_rgb_map(), dsize=(400, 400)),
+        start = time.time()
+        msg = icm.to_occupancy_grid_msg(
+            header=Header(stamp=self.get_clock().now().to_msg(), frame_id="map")
         )
-        cv2.waitKey(1)
+        print(1 / (time.time() - start))
+
+        # cv2.imshow(
+        #     "map",
+        #     cv2.resize(icm.to_rgb_map(), dsize=(400, 400)),
+        # )
+        # cv2.waitKey(1)
 
     @staticmethod
     def points_from_lidar_to_map(

@@ -1,6 +1,9 @@
 import numpy as np
 from typing import Optional, Tuple, List
 import cv2
+from nav_msgs.msg import OccupancyGrid, MapMetaData
+from std_msgs.msg import Header
+from geometry_msgs.msg import Pose, Point
 
 
 class CostMap:
@@ -41,7 +44,7 @@ class CostMap:
         map_width: int = int((width_m) * resolution)
         map_height: int = int((height_m) * resolution)
         assert map_width > 0 and map_height > 0, "Please increase resolution"
-        m = np.zeros(shape=(map_width, map_height), dtype=np.float32)
+        m = np.zeros(shape=(map_width, map_height), dtype=np.int8)
         return m
 
     def get_map(self, down_sample: Optional[Tuple[int, int]] = None) -> np.ndarray:
@@ -155,6 +158,29 @@ class CostMap:
 
     def get_resolution(self) -> float:
         return self._resolution
+
+    def to_occupancy_grid_msg(self, header: Header) -> OccupancyGrid:
+        og: OccupancyGrid = OccupancyGrid(header=header)
+        info: MapMetaData = MapMetaData(
+            resolution=float(self._resolution),
+            width=int(self._map.shape[0]),
+            height=int(self._map.shape[1]),
+            origin=Pose(
+                position=Point(
+                    x=float(self._min_x_m), y=float(self._min_y_m), z=float(0.0)
+                )
+            ),
+        )
+        og.info = info
+        # normalized_map = (self._map * 255).astype(np.int8)
+        # rescaled_map: np.ndarray = (normalized_map * 255).astype(np.int8)
+        data = (
+            self._map.reshape((int(self._map.shape[0] * self._map.shape[1])))
+            .astype(np.int8)
+            .tolist()
+        )
+        og.data = data
+        return og
 
 
 class CostMapException(Exception):

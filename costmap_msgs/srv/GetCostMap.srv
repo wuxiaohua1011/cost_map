@@ -1,0 +1,7 @@
+int64 width_m
+int64 height_m
+float32 min_x
+float32 min_y
+
+---
+nav_msgs/OccupancyGrid map
