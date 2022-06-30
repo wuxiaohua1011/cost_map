@@ -23,12 +23,18 @@ import time
 
 from costmap_msgs.msg import CostMapMsg
 from costmap_msgs.srv import GetCostMap, GetInflatedCostMap
-from example_interfaces.srv import AddTwoInts
 
 
 class ObstacleMapNode(rclpy.node.Node):
     def __init__(self):
         super().__init__("obstacle_map")
+
+        self.declare_parameter("global_costmap_width", 2000)
+        self.declare_parameter("global_costmap_height", 2000)
+        self.declare_parameter("global_costmap_min_x", -850.0)
+        self.declare_parameter("global_costmap_min_y", -850.0)
+        self.declare_parameter("resolution", 0.2)  # meter/cell
+        self.declare_parameter("map_frame_id", "map")
 
         self.obstacles_sub = self.create_subscription(
             Marker,
@@ -39,11 +45,27 @@ class ObstacleMapNode(rclpy.node.Node):
         self.get_logger().info(f"Listening for obstacles on {self.obstacles_sub.topic}")
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
+
+        # Note: inverse the resolution b/c in normal life, we say resolution is in meter/cell, but in implementation, i did cell/meter
         self.costmap = CostMap(
-            width=2000, height=2000, resolution=5, min_x=-850, min_y=-850
+            width=self.get_parameter("global_costmap_width")
+            .get_parameter_value()
+            .integer_value,
+            height=self.get_parameter("global_costmap_height")
+            .get_parameter_value()
+            .integer_value,
+            resolution=int(
+                1 / self.get_parameter("resolution").get_parameter_value().double_value
+            ),
+            min_x=self.get_parameter("global_costmap_min_x")
+            .get_parameter_value()
+            .double_value,
+            min_y=self.get_parameter("global_costmap_min_y")
+            .get_parameter_value()
+            .double_value,
         )
         self.get_logger().info(
-            f"CostMap initialized. map size={self.costmap.get_map_size()} | resolution={self.costmap.get_resolution()} | min_x={self.costmap._min_x_m} | min_y = {self.costmap._min_y_m}"
+            f"CostMap initialized. map={self.costmap._width_m}m x{self.costmap._height_m}m | resolution={self.costmap.get_resolution()} cell/meter | min_x={self.costmap._min_x_m}m | min_y = {self.costmap._min_y_m}m | Map size in cells = {self.costmap.get_map_size()}"
         )
 
         self.costmap_srv = self.create_service(
@@ -54,14 +76,22 @@ class ObstacleMapNode(rclpy.node.Node):
             GetInflatedCostMap, "inflated_costmap_srv", self.get_inflated_map_callback
         )
 
+        self.map_frame_id = (
+            self.get_parameter("map_frame_id").get_parameter_value().string_value
+        )
+
     def on_costmap_srv_callback(self, request, response):
-        header = Header(stamp=self.get_clock().now().to_msg(), frame_id="map")
-        m = self.costmap.to_ros_msg(header=header)
+        header = Header(
+            stamp=self.get_clock().now().to_msg(), frame_id=self.map_frame_id
+        )
+        m: CostMapMsg = self.costmap.to_ros_msg(header=header)
         response.map = m
         return response
 
     def get_inflated_map_callback(self, request, response):
-        header = Header(stamp=self.get_clock().now().to_msg(), frame_id="map")
+        header = Header(
+            stamp=self.get_clock().now().to_msg(), frame_id=self.map_frame_id
+        )
 
         icm = InflatedCostMap.from_costmap(
             cost_map=self.costmap,
@@ -69,46 +99,36 @@ class ObstacleMapNode(rclpy.node.Node):
             height=request.height,
             Ox=request.min_x,
             Oy=request.min_y,
-            obstacle_kernel_len=51,
-            obstacle_kernel_std=15,
-            obstacle_threshold=0.1,
+            obstacle_kernel_len=request.obstacle_kernel_len,
+            obstacle_kernel_std=request.obstacle_kernel_std,
+            obstacle_threshold=request.obstacle_threshold,
         )
-        m = icm.to_ros_msg(header=header)
+        m: CostMapMsg = icm.to_ros_msg(header=header)
         response.map = m
         return response
 
     def obstacles_sub_callback(self, marker: Marker):
+        """
+            Given a list of obstacles in the relative frame, project it onto the costmap that is in the map frame
+
+        Args:
+            marker (Marker): _description_
+        """
         if len(marker.points) == 0:
             return
         # transform all obstacle to map frame
         points: np.ndarray = self.marker_points_to_numpy(marker=marker).T
-        trans: TransformStamped = self.get_transform(
-            marker.header.frame_id, to_frame_rel="map"
-        )
-        if trans is None:
-            return
-        points_map = self.points_from_lidar_to_map(trans=trans, points=points)
+
+        if marker.header.frame_id != self.map_frame_id:
+            trans: TransformStamped = self.get_transform(
+                marker.header.frame_id, to_frame_rel=self.map_frame_id
+            )
+            if trans is None:
+                return
+            points = self.points_from_lidar_to_map(trans=trans, points=points)
 
         # plot obstacles onto cost map
-        self.costmap.set_val_from_world_coords(points_map[0:2], 1.0)
-        # width = 200
-        # height = 200
-
-        # icm = InflatedCostMap.from_costmap(
-        #     cost_map=self.costmap,
-        #     width=width,
-        #     height=height,
-        #     Ox=trans.transform.translation.x - width // 2,
-        #     Oy=trans.transform.translation.y - height // 2,
-        #     obstacle_kernel_len=51,
-        #     obstacle_kernel_std=15,
-        #     obstacle_threshold=0.1,
-        # )
-        # start = time.time()
-        # msg = icm.to_ros_msg(
-        #     header=Header(stamp=self.get_clock().now().to_msg(), frame_id="map")
-        # )
-        # print(1 / (time.time() - start))
+        self.costmap.set_val_from_world_coords(points[0:2], 1.0)
 
     @staticmethod
     def points_from_lidar_to_map(

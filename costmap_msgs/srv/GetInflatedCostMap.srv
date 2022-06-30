@@ -4,8 +4,6 @@ float32 min_x
 float32 min_y
 int64 obstacle_kernel_len
 int64 obstacle_kernel_std
-int64 goal_kernel_len
-int64 goal_kernel_std
 float32 obstacle_threshold
 ---
 costmap_msgs/CostMapMsg map
