@@ -11,6 +11,8 @@ import numpy as np
 from visualization_msgs.msg import Marker
 from geometry_msgs.msg import TransformStamped
 from typing import Optional, Tuple
+from sensor_msgs.msg import Image
+from cv_bridge import CvBridge
 from pathlib import Path
 from tf2_ros import TransformException
 from tf2_ros.buffer import Buffer
@@ -23,6 +25,7 @@ import time
 
 from costmap_msgs.msg import CostMapMsg
 from costmap_msgs.srv import GetCostMap, GetInflatedCostMap
+from example_interfaces.srv import AddTwoInts
 
 
 class ObstacleMapNode(rclpy.node.Node):
@@ -65,7 +68,7 @@ class ObstacleMapNode(rclpy.node.Node):
             .double_value,
         )
         self.get_logger().info(
-            f"CostMap initialized. map={self.costmap._width_m}m x{self.costmap._height_m}m | resolution={self.costmap.get_resolution()} cell/meter | min_x={self.costmap._min_x_m}m | min_y = {self.costmap._min_y_m}m | Map size in cells = {self.costmap.get_map_size()}"
+            f"CostMap initialized. map= {self.costmap._width_m}m x {self.costmap._height_m}m | resolution={self.costmap.get_resolution()} cell/meter | min_x={self.costmap._min_x_m}m | min_y = {self.costmap._min_y_m}m | Map size in cells = {self.costmap.get_map_size()}"
         )
 
         self.costmap_srv = self.create_service(
@@ -80,6 +83,9 @@ class ObstacleMapNode(rclpy.node.Node):
             self.get_parameter("map_frame_id").get_parameter_value().string_value
         )
 
+        self.inflated_map_publisher = self.create_publisher(Image, "inflated_map", 10)
+        self.bridge = CvBridge()
+
     def on_costmap_srv_callback(self, request, response):
         header = Header(
             stamp=self.get_clock().now().to_msg(), frame_id=self.map_frame_id
@@ -92,7 +98,6 @@ class ObstacleMapNode(rclpy.node.Node):
         header = Header(
             stamp=self.get_clock().now().to_msg(), frame_id=self.map_frame_id
         )
-
         icm = InflatedCostMap.from_costmap(
             cost_map=self.costmap,
             width=request.width,
@@ -105,6 +110,7 @@ class ObstacleMapNode(rclpy.node.Node):
         )
         m: CostMapMsg = icm.to_ros_msg(header=header)
         response.map = m
+        self.get_logger().info(f"Response sent {self.get_clock().now()}")
         return response
 
     def obstacles_sub_callback(self, marker: Marker):
@@ -129,6 +135,27 @@ class ObstacleMapNode(rclpy.node.Node):
 
         # plot obstacles onto cost map
         self.costmap.set_val_from_world_coords(points[0:2], 1.0)
+
+        # header = Header(
+        #     stamp=self.get_clock().now().to_msg(), frame_id=self.map_frame_id
+        # )
+        # width = 100
+        # height = 100
+        # icm = InflatedCostMap.from_costmap(
+        #     cost_map=self.costmap,
+        #     width=width,
+        #     height=height,
+        #     Ox=trans.transform.translation.x - width // 2,
+        #     Oy=trans.transform.translation.y - height // 2,
+        #     obstacle_kernel_len=51,
+        #     obstacle_kernel_std=15,
+        #     obstacle_threshold=0.5,
+        # )
+        # colored = icm.to_rgb_map()
+        # cv2.imshow("colored", colored)
+        # cv2.waitKey(1)
+        # image = self.bridge.cv2_to_imgmsg(colored)
+        # self.inflated_map_publisher.publish(image)
 
     @staticmethod
     def points_from_lidar_to_map(

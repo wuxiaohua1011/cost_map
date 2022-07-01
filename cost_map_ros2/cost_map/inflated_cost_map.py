@@ -4,6 +4,7 @@ from typing import Optional
 from scipy import signal
 import time
 import cv2
+import logging
 
 
 class InflatedCostMap(CostMap):
@@ -21,8 +22,16 @@ class InflatedCostMap(CostMap):
         obstacle_threshold: float = 0.5,
     ) -> None:
         super().__init__(width, height, resolution, min_x, min_y)
-        assert obstacle_kernel_len % 2 == 1, "Kernel has to be odd"
-        assert goal_kernel_len % 2 == 1, "Kernel has to be odd"
+        if obstacle_kernel_len % 2 == 0:
+            obstacle_kernel_len += 1
+            logging.warning(
+                "Obstacle Kernel has to be odd, incrementing automatically to satisfy requirement"
+            )
+        if goal_kernel_len % 2 == 0:
+            goal_kernel_len += 1
+            logging.warning(
+                "Goal Kernel has to be odd, incrementing automatically to satisfy requirement"
+            )
         self.obstacle_kernel_len: int = obstacle_kernel_len
         self.obstacle_kernel_std: int = obstacle_kernel_std
         self.goal_kernel_len: float = goal_kernel_len
@@ -55,6 +64,7 @@ class InflatedCostMap(CostMap):
 
     def set_val_from_map_coords(self, coords: np.ndarray, is_obstacle=True, gain=1):
         kernel = self.obstacle_kernel if is_obstacle else self.goal_kernel
+
         offset = int(np.ceil(kernel.shape[0] / 2))
         for x, y in coords:
             map_minx = max(0, x - offset + 1)
@@ -84,10 +94,12 @@ class InflatedCostMap(CostMap):
 
     def to_rgb_map(self) -> np.ndarray:
         img = self.get_map()
-
         img = img / np.max(img)
         img = cv2.applyColorMap((img * 255).astype(np.uint8), cv2.COLORMAP_JET)
         return img
+
+    def set_respulsive_fields(self, coords: np.ndarray, gain=10):
+        pass
 
     @classmethod
     def from_costmap(
@@ -137,6 +149,8 @@ class InflatedCostMap(CostMap):
         )
 
         obs_map_indices = np.where(regional_costmap >= obstacle_threshold)
-        icm.set_val_from_map_coords(np.vstack(obs_map_indices).T, is_obstacle=True)
+        icm.set_val_from_map_coords(
+            np.vstack(obs_map_indices).T, is_obstacle=True, gain=10
+        )
 
         return icm
